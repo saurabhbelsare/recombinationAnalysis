@@ -1,0 +1,133 @@
+configfile: "config.yaml"
+
+#regions=["BEB", "GIH", "ITU", "PJL", "STU"]
+#halves=["firstHalf", "secondHalf"]
+halves=["firstHalf"]
+regions=["GIH"]
+numChr=2
+chromosomes=[str(i) for i in range(22,23)]
+#chromosomes=[str(i) for i in range(20,21)]
+
+rule all:
+    input:
+        expand("output/{region}/{half}/chr{chrNum}/maf_0_03/{region}_1KG_{half}.chr{chrNum}_GRCh38_cleanedup_removeDuplicates.fasta", region=regions, half=halves, chrNum=chromosomes)
+
+#rule make_directories:
+#    output:
+#        "output/{regions}/chr{chromosomes}/"
+#    shell:
+#        "mkdir -p {output}"
+
+rule get_vcf_data:
+    input:
+        "/mnt/assembly/walllab/saurabh/data/1000genomes/vcf/phase3_GRCh38/ALL.chr{chromosomes}_GRCh38.genotypes.20170504.vcf.gz"
+    output:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.recode.vcf"
+    params:
+        outprefix="output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates",
+        region="{regions}",
+        half="{halves}",
+        chromosome="{chromosomes}"
+    shell:
+        "vcftools --gzvcf {input} --keep individualData/{params.region}_1KG_{params.half}.list --chr {params.chromosome} --remove-indels --remove-filtered-all --min-alleles 2 --max-alleles 2 --max-missing 1 --phased --maf 0.03 --recode --out {params.outprefix}"
+
+rule vcf2fasta:
+    input:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.recode.vcf"
+    output:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.fasta"
+    params:
+        region="{regions}",
+        half="{halves}",
+        chromosome="{chromosomes}"
+    shell:
+        """
+        mkdir -p output/{params.region}/{params.half}/chr{params.chromosome}/maf_0_03/individualFastaFiles
+        /mnt/assembly/walllab/saurabh/software/vcflib/bin/vcf2fasta --reference /mnt/assembly/walllab/saurabh/data/referenceGenomes/ucscGenomeBrowser/chr{params.chromosome}.fa --prefix output/{params.region}/{params.half}/chr{params.chromosome}/maf_0_03/individualFastaFiles/ {input}
+        cat output/{params.region}/{params.half}/chr{params.chromosome}/maf_0_03/individualFastaFiles/* > {output}
+        rm -rf output/{params.region}/{params.half}/chr{params.chromosome}/maf_0_03/individualFastaFiles/
+        """
+
+rule ldhelmet_find_confs:
+    input:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.fasta"
+    output:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.conf"
+    threads: config["threads"]
+    params:
+        window=config["ldhelmet_params"]["window"]
+    shell:
+        "ldhelmet find_confs --num_threads {threads} -w {params.window} -o {output} {input}"
+
+#rule ldhelmet_table_gen:
+#    input:
+#        "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.conf"
+#    output:
+#        "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.lk"
+#    threads: config["threads"]
+#    params:
+#        #theta=config["ldhelmet_params"]["theta"],
+#        theta=lambda wildcards: config["theta_values"][wildcards.chromosomes],
+#        rho_grid=config["ldhelmet_params"]["rho_grid"]
+#    shell:
+#        "time ldhelmet table_gen --num_threads {threads} -t {params.theta} -r {params.rho_grid} -c {input} -o {output}"
+
+rule ldpop:
+    output:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.ldpop"
+    threads: config["threads"]
+    params:
+        theta=lambda wildcards: config["theta_values"][wildcards.chromosomes],
+        rho_grid=config["ldhelmet_params"]["rho_grid"],
+        numSeq=config["ldhelmet_params"]["num_sequences"]
+    shell:
+        "time /mnt/assembly/walllab/saurabh/software/anaconda3/bin/python /mnt/assembly/walllab/saurabh/software/ldpop/run/ldtable.py -n {params.numSeq} -th {params.theta} -rh {params.rho_grid} --approx --cores {threads} > {output}"
+
+rule ldhelmet_convert_table:
+    input:
+        ldpop = "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.ldpop",
+        conf = "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.conf"
+    output:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.lk"
+    shell:
+        "time ldhelmet convert_table --input_table {input.ldpop} --output_table {output} --config_file {input.conf}"
+
+rule ldhelmet_pade:
+    input:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.conf"
+    output:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.pade"
+    threads: config["threads"]
+    params:
+        theta=lambda wildcards: config["theta_values"][wildcards.chromosomes],
+        num_pade_coeff=config["ldhelmet_params"]["num_pade_coeff"]
+    shell:
+        "ldhelmet pade --num_threads {threads} -t {params.theta} -x {params.num_pade_coeff} -c {input} -o {output}"
+
+rule ldhelmet_rjmcmc:
+    input:
+        lk = "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.lk",
+        pade = "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.pade",
+        fasta = "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.fasta"
+    output:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.post"
+    threads: config["threads"]
+    params:
+        block_penalty=config["ldhelmet_params"]["block_penalty"],
+        burn_in=config["ldhelmet_params"]["burn_in"],
+        total_iter=config["ldhelmet_params"]["total_iter"]
+    shell:
+        "time ldhelmet rjmcmc --num_threads {threads} -l {input.lk} -p {input.pade} -s {input.fasta} -b {params.block_penalty} --burn_in {params.burn_in} -n {params.total_iter} -o {output}"
+
+rule ldhelmet_post_to_text:
+    input:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.post"
+    output:
+        "output/{regions}/{halves}/chr{chromosomes}/maf_0_03/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.txt"
+    params:
+        low_percentile=config["ldhelmet_params"]["low_percentile"],
+        mid_percentile=config["ldhelmet_params"]["mid_percentile"],
+        high_percentile=config["ldhelmet_params"]["high_percentile"]
+    shell:
+        "ldhelmet post_to_text -m -p {params.low_percentile} -p {params.mid_percentile} -p {params.high_percentile} -o {output} {input}"
+

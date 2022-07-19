@@ -1,0 +1,49 @@
+threads: 4
+
+io_files:
+    vcf_input_file: "/mnt/assembly/walllab/saurabh/data/1000genomes/vcf/phase3_GRCh38/ALL.chr{chromosomes}_GRCh38.genotypes.20170504.vcf.gz"
+    indv_list_file: "individualData/{regions}_1KG_{halves}.list"
+    vcf_filtered_file: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.recode.vcf"
+    #ref_genome_file: "/mnt/assembly/walllab/saurabh/data/referenceGenomes/Homo_sapiens.GRCh38.dna.toplevel_chr{chromosomes}.fa"
+    ref_genome_file: "/mnt/assembly/walllab/saurabh/data/referenceGenomes/ucscGenomeBrowser/chr{chromosomes}.fa"
+    fasta_file: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.fasta"
+    conf_file: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.conf"
+    ldpop_file: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.ldpop"
+    lk_file: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.lk"
+    pade_file: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.pade"
+    post_file: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.post"
+    txt_file: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.txt"
+
+prefixes:
+    vcf_filtered_outprefix: "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates"
+    vcf2fasta_tmp_dir: "output/{regions}/{halves}/chr{chromosomes}/individualFastaFiles"
+
+scripts:
+    ldtable_script: "/mnt/assembly/walllab/saurabh/software/ldpop/run/ldtable.py"
+
+vcftools_params:
+    min_alleles: 2
+    max_alleles: 2
+    mac: 2
+    thin_snps_len: 10
+    non_ref_ac_any: 1
+
+beagle_params:
+    ne: 50000
+    impute_flag: false
+    nthreads: 4
+
+ldhelmet_params:
+    num_seqs: 48
+    window: 50
+    rho_grid: 0.0 0.1 10.0 1.0 100.0
+#    rho_grid: 0.0 1.0 100.0
+    num_pade_coeff: 11
+    block_penalty: 5.0
+    burn_in: 100000
+    total_iter: 10000000
+    low_percentile: 0.025
+    mid_percentile: 0.5
+    high_percentile: 0.975
+    theta: 0.0007937
+    mem_mb: 250000

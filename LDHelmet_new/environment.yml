@@ -1,0 +1,24 @@
+channels:
+ - conda-forge
+ - bioconda
+dependencies:
+# The workflow manager
+ - snakemake=4.4.0
+# For visualizing workflows
+ - graphviz=2.38.0
+ - xorg-libxrender
+ - xorg-libxpm
+# For downloading files
+ - wget
+# For file processing
+ - gawk
+# For recombination analysis
+ - ldhelmet
+ - vcftools 
+ - bcftools
+ - shapeit 
+ - beagle
+ - vcflib
+ - tabix
+ - samtools
+ - pysam

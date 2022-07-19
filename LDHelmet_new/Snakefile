@@ -1,0 +1,143 @@
+configfile: "config.yaml"
+
+regions=["GIH"]
+#halves=["firstHalf"]
+halves=["24Indv"]
+numChr=22
+chromosomes=[str(i) for i in range(15,22)]
+
+rule all:
+    input:
+        expand("output/{region}/{half}/chr{chrNum}/{region}_1KG_{half}.chr{chrNum}_GRCh38_cleanedup_removeDuplicates.txt", region=regions, half=halves, chrNum=chromosomes)
+        #expand("output/{region}/{half}/chr{chrNum}/{region}_1KG_{half}.chr{chrNum}_GRCh38_cleanedup_removeDuplicates.pade", region=regions, half=halves, chrNum=chromosomes)
+
+rule get_vcf_data:
+    input:
+        vcf_input_file=config["io_files"]["vcf_input_file"],
+        indv_list_file=config["io_files"]["indv_list_file"]
+    output:
+        vcf_filtered_file=config["io_files"]["vcf_filtered_file"]
+    params:
+        outprefix=config["prefixes"]["vcf_filtered_outprefix"],
+        region="{regions}",
+        chromosome="{chromosomes}",
+        min_alleles=config["vcftools_params"]["min_alleles"],
+        max_alleles=config["vcftools_params"]["max_alleles"],
+        mac=config["vcftools_params"]["mac"],
+        thin_snps_len=config["vcftools_params"]["thin_snps_len"],
+        non_ref_ac_any=config["vcftools_params"]["non_ref_ac_any"]
+        #vcftools --gzvcf {input.vcf_input_file} --keep {input.indv_list_file} --chr {params.chromosome} --recode --out {params.outprefix} --remove-indels --remove-filtered-all --min-alleles {params.min_alleles} --max-alleles {params.max_alleles} --mac {params.mac} --thin {params.thin_snps_len} --non-ref-ac-any {params.non_ref_ac_any} --phased
+    shell:
+        """
+        vcftools --gzvcf {input.vcf_input_file} --keep {input.indv_list_file} --chr {params.chromosome} --recode --out {params.outprefix} --remove-indels --remove-filtered-all --min-alleles {params.min_alleles} --max-alleles {params.max_alleles} --mac {params.mac} --thin {params.thin_snps_len} --non-ref-ac-any {params.non_ref_ac_any} --phased --max-missing 1
+        """
+
+rule vcf2fasta:
+    input:
+        vcf_file=config["io_files"]["vcf_filtered_file"],
+        ref_file=config["io_files"]["ref_genome_file"]
+    output:
+        fasta_file=config["io_files"]["fasta_file"]
+    params:
+        region="{regions}",
+        chromosome="{chromosomes}",
+        tmp_dir=config["prefixes"]["vcf2fasta_tmp_dir"]
+        #bgzip {input.vcf_file}
+        #tabix {input.vcf_file}.gz
+    shell:
+        """
+        mkdir -p {params.tmp_dir}
+        vcf2fasta --reference {input.ref_file} --prefix {params.tmp_dir}/ {input.vcf_file}
+        cat {params.tmp_dir}/* > {output.fasta_file}
+        rm -rf {params.tmp_dir}
+        """
+
+rule ldhelmet_find_confs:
+    input:
+        fasta_file=config["io_files"]["fasta_file"]
+    output:
+        conf_file=config["io_files"]["conf_file"]
+    threads: config["threads"]
+    params:
+        window=config["ldhelmet_params"]["window"]
+    shell:
+        "ldhelmet find_confs --num_threads {threads} -w {params.window} -o {output.conf_file} {input.fasta_file}"
+
+#rule ldhelmet_table_gen:
+#    input:
+#        "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.conf"
+#    output:
+#        "output/{regions}/{halves}/chr{chromosomes}/{regions}_1KG_{halves}.chr{chromosomes}_GRCh38_cleanedup_removeDuplicates.lk"
+#    threads: config["threads"]
+#    params:
+#        #theta=config["ldhelmet_params"]["theta"],
+#        theta=lambda wildcards: config["theta_values"][wildcards.chromosomes],
+#        rho_grid=config["ldhelmet_params"]["rho_grid"]
+#    resources:
+#        mem_mb=250000
+#    shell:
+#        "time ldhelmet table_gen --num_threads {threads} -t {params.theta} -r {params.rho_grid} -c {input} -o {output}"
+
+rule ldpop:
+    output:
+       ldpop_file= config["io_files"]["ldpop_file"]
+    threads: config["threads"]
+    params:
+#        theta=lambda wildcards: config["theta_values"][wildcards.chromosomes],
+        theta=config["ldhelmet_params"]["theta"],
+        num_seqs=config["ldhelmet_params"]["num_seqs"],
+        ldtable_script=config["scripts"]["ldtable_script"]
+    shell:
+        "time python {params.ldtable_script} -n {params.num_seqs} -th {params.theta} -rh 101,100 --approx --cores {threads} > {output.ldpop_file}"
+
+rule ldhelmet_convert_table:
+    input:
+        ldpop_file = config["io_files"]["ldpop_file"],
+        conf_file = config["io_files"]["conf_file"]
+    output:
+        lk_file=config["io_files"]["lk_file"]
+    threads: config["threads"]
+    shell:
+        "time ldhelmet convert_table --input_table {input.ldpop_file} --output_table {output.lk_file} --config_file {input.conf_file}"
+
+rule ldhelmet_pade:
+    input:
+        conf_file=config["io_files"]["conf_file"]
+    output:
+        pade_file=config["io_files"]["pade_file"]
+    threads: config["threads"]
+    params:
+        #theta=lambda wildcards: config["theta_values"][wildcards.chromosomes],
+        theta=config["ldhelmet_params"]["theta"],
+        num_pade_coeff=config["ldhelmet_params"]["num_pade_coeff"]
+    shell:
+        "ldhelmet pade --num_threads {threads} -t {params.theta} -x {params.num_pade_coeff} -c {input.conf_file} -o {output.pade_file}"
+
+rule ldhelmet_rjmcmc:
+    input:
+        lk_file=config["io_files"]["lk_file"],
+        #pade_file=config["io_files"]["pade_file"],
+        fasta_file=config["io_files"]["fasta_file"]
+    output:
+        post_file=config["io_files"]["post_file"]
+    threads: config["threads"]
+    params:
+        block_penalty=config["ldhelmet_params"]["block_penalty"],
+        burn_in=config["ldhelmet_params"]["burn_in"],
+        total_iter=config["ldhelmet_params"]["total_iter"]
+    shell:
+        "time ldhelmet rjmcmc --num_threads {threads} -l {input.lk_file} -s {input.fasta_file} -b {params.block_penalty} --burn_in {params.burn_in} -n {params.total_iter} -o {output.post_file}"
+        #"time ldhelmet rjmcmc --num_threads {threads} -l {input.lk_file} -p {input.pade_file} -s {input.fasta_file} -b {params.block_penalty} --burn_in {params.burn_in} -n {params.total_iter} -o {output.post_file}"
+
+rule ldhelmet_post_to_text:
+    input:
+        post_file=config["io_files"]["post_file"]
+    output:
+        txt_file=config["io_files"]["txt_file"]
+    params:
+        low_percentile=config["ldhelmet_params"]["low_percentile"],
+        mid_percentile=config["ldhelmet_params"]["mid_percentile"],
+        high_percentile=config["ldhelmet_params"]["high_percentile"]
+    shell:
+        "ldhelmet post_to_text -m -p {params.low_percentile} -p {params.mid_percentile} -p {params.high_percentile} -o {output.txt_file} {input.post_file}"
+
